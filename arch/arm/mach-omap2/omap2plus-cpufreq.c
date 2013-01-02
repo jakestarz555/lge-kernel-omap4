@@ -661,7 +661,7 @@ static ssize_t store_uv_mv_table(struct cpufreq_policy *policy,
 		}
 	}
 	policy->min = policymin;
-	policy->max = policymax;
+	policy->max = 1008000;
 	return count;
 }
 
