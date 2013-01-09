@@ -30,7 +30,7 @@
 #include <linux/thermal_framework.h>
 #include <linux/platform_device.h>
 #include <linux/omap4_duty_cycle.h>
-
+#include <linux/earlysuspend.h>
 #include <asm/system.h>
 #include <asm/smp_plat.h>
 #include <asm/cpu.h>
@@ -62,6 +62,7 @@ static struct device *mpu_dev;
 static DEFINE_MUTEX(omap_cpufreq_lock);
 
 static unsigned int max_thermal;
+static unsigned int max_capped;
 static unsigned int max_freq;
 static unsigned int current_target_freq;
 static unsigned int current_cooling_level;
@@ -260,6 +261,46 @@ static int omap_target(struct cpufreq_policy *policy,
 
 	return ret;
 }
+
+static void omap_cpu_early_suspend(struct early_suspend *h)
+{
+	unsigned int cur;
+
+	mutex_lock(&omap_cpufreq_lock);
+
+	if (screen_off_max_freq) {
+		max_capped = screen_off_max_freq;
+
+		cur = omap_getspeed(0);
+		if (cur > max_capped)
+			omap_cpufreq_scale(max_capped, cur);
+	}
+
+	mutex_unlock(&omap_cpufreq_lock);
+}
+
+static void omap_cpu_late_resume(struct early_suspend *h)
+{
+	unsigned int cur;
+
+	mutex_lock(&omap_cpufreq_lock);
+
+	if (max_capped) {
+		max_capped = 0;
+
+		cur = omap_getspeed(0);
+		if (cur != current_target_freq)
+			omap_cpufreq_scale(current_target_freq, cur);
+	}
+
+	mutex_unlock(&omap_cpufreq_lock);
+}
+
+static struct early_suspend omap_cpu_early_suspend_handler = {
+	.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN,
+	.suspend = omap_cpu_early_suspend,
+	.resume = omap_cpu_late_resume,
+};
 
 static inline void freq_table_free(void)
 {
@@ -609,10 +650,6 @@ static ssize_t store_uv_mv_table(struct cpufreq_policy *policy,
 				dep_table[i].dep_vdd_volt > volt_cur*1000) {
 				// imoseyon - ugly hack (fix later! yeah right)
 				if (volt_cur < 1127) {
-					if (volt_cur < 962) 
-					   mpu_voltdm->vdd->dep_vdd_info->
-						dep_table[i].dep_vdd_volt = 650000;
-					else
 					   mpu_voltdm->vdd->dep_vdd_info->
 						dep_table[i].dep_vdd_volt = 962000;
 				} else mpu_voltdm->vdd->dep_vdd_info->
@@ -763,6 +800,7 @@ static int __init omap_cpufreq_init(void)
 		pr_warning("%s: unable to get the mpu device\n", __func__);
 		return -EINVAL;
 	}
+	register_early_suspend(&omap_cpu_early_suspend_handler);
 
 	ret = cpufreq_register_driver(&omap_driver);
 	omap_cpufreq_ready = !ret;
@@ -797,6 +835,7 @@ static void __exit omap_cpufreq_exit(void)
 	omap_cpufreq_cooling_exit();
 	omap_duty_cooling_exit();
 	cpufreq_unregister_driver(&omap_driver);
+	unregister_early_suspend(&omap_cpu_early_suspend_handler);
 	platform_driver_unregister(&omap_cpufreq_platform_driver);
 	platform_device_unregister(&omap_cpufreq_device);
 }
@@ -805,3 +844,4 @@ MODULE_DESCRIPTION("cpufreq driver for OMAP2PLUS SOCs");
 MODULE_LICENSE("GPL");
 late_initcall(omap_cpufreq_init);
 module_exit(omap_cpufreq_exit);
+
