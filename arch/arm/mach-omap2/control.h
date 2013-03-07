@@ -1,3 +1,4 @@
+
 /*
  * arch/arm/mach-omap2/control.h
  *
