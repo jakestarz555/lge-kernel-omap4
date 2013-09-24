@@ -31,7 +31,6 @@
 #include <linux/platform_device.h>
 #include <linux/omap4_duty_cycle.h>
 #include <linux/earlysuspend.h>
-
 #include <asm/system.h>
 #include <asm/smp_plat.h>
 #include <asm/cpu.h>
@@ -70,7 +69,6 @@ static unsigned int max_capped;
 static unsigned int max_freq;
 static unsigned int current_target_freq;
 static unsigned int current_cooling_level;
-static unsigned int screen_off_max_freq;
 static bool omap_cpufreq_ready;
 static bool omap_cpufreq_suspended;
 
@@ -100,9 +98,6 @@ static int omap_cpufreq_scale(unsigned int target_freq, unsigned int cur_freq)
 	 */
 	if (freqs.new > max_thermal)
 		freqs.new = max_thermal;
-
-	if (max_capped && freqs.new > max_capped)
-		freqs.new = max_capped;
 
 	if ((freqs.old == freqs.new) && (cur_freq = freqs.new))
 		return 0;
@@ -520,47 +515,10 @@ static int omap_cpu_exit(struct cpufreq_policy *policy)
 	return 0;
 }
 
-static ssize_t show_screen_off_freq(struct cpufreq_policy *policy, char *buf)
-{
-	return sprintf(buf, "%u\n", screen_off_max_freq);
-}
 
-static ssize_t store_screen_off_freq(struct cpufreq_policy *policy,
-	const char *buf, size_t count)
-{
-	unsigned int freq = 0;
-	int ret;
-	int index;
-
-	if (!freq_table)
-		return -EINVAL;
-
-	ret = sscanf(buf, "%u", &freq);
-	if (ret != 1)
-		return -EINVAL;
-
-	mutex_lock(&omap_cpufreq_lock);
-
-	ret = cpufreq_frequency_table_target(policy, freq_table, freq,
-		CPUFREQ_RELATION_H, &index);
-	if (ret)
-		goto out;
-
-	screen_off_max_freq = freq_table[index].frequency;
-
-	ret = count;
-
-out:
-	mutex_unlock(&omap_cpufreq_lock);
-	return ret;
-}
-
-struct freq_attr omap_cpufreq_attr_screen_off_freq = {
-	.attr = { .name = "screen_off_max_freq",
-		  .mode = 0644,
-		},
-	.show = show_screen_off_freq,
-	.store = store_screen_off_freq,
+static struct freq_attr *omap_cpufreq_attr[] = {
+	&cpufreq_freq_attr_scaling_available_freqs,
+	NULL,
 };
 
 #ifdef CONFIG_CUSTOM_VOLTAGE
@@ -589,8 +547,6 @@ static struct freq_attr *omap_cpufreq_attr[] = {
 #ifdef CONFIG_CUSTOM_VOLTAGE
 	&omap_UV_mV_table,
 #endif
-	NULL,
-};
 
 
 static struct cpufreq_driver omap_driver = {
@@ -664,8 +620,6 @@ static int __init omap_cpufreq_init(void)
 	}
 	register_early_suspend(&omap_cpu_early_suspend_handler);
 
-	register_early_suspend(&omap_cpu_early_suspend_handler);
-
 	ret = cpufreq_register_driver(&omap_driver);
 	omap_cpufreq_ready = !ret;
 
@@ -699,7 +653,6 @@ static void __exit omap_cpufreq_exit(void)
 	omap_cpufreq_cooling_exit();
 	omap_duty_cooling_exit();
 	cpufreq_unregister_driver(&omap_driver);
-
 	unregister_early_suspend(&omap_cpu_early_suspend_handler);
 	platform_driver_unregister(&omap_cpufreq_platform_driver);
 	platform_device_unregister(&omap_cpufreq_device);
